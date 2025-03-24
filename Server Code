@@ -1,0 +1,57 @@
+sudo apt update
+sudo apt install nginx certbot python3-certbot-nginx
+
+
+
+sudo nano /etc/nginx/sites-available/averyizatt.com
+server {
+    listen 80;
+    server_name averyizatt.com www.averyizatt.com;
+
+    location / {
+        proxy_pass http://localhost:5000;  # Flask server
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <DHT.h>
+#include <ArduinoJson.h>
+
+#define DHTPIN 4
+#define DHTTYPE DHT22
+DHT dht(DHTPIN, DHTTYPE);
+
+const char* ssid = "yourSSID";
+const char* password = "yourPASS";
+
+void setup() {
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+  dht.begin();
+}
+
+void loop() {
+  if (WiFi.status() == WL_CONNECTED) {
+    float temp = dht.readTemperature();
+    float hum = dht.readHumidity();
+
+    StaticJsonDocument<200> doc;
+    doc["sensor_id"] = "tank1";
+    doc["temp"] = temp;
+    doc["hum"] = hum;
+    
+    String json;
+    serializeJson(doc, json);
+
+    HTTPClient http;
+    http.begin("https://averyizatt.com/upload"); // Use HTTPS
+    http.addHeader("Content-Type", "application/json");
+    int httpResponseCode = http.POST(json);
+    http.end();
+  }
+  delay(10000); // Send every 10 sec
+}
