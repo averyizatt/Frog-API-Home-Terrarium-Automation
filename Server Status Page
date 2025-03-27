@@ -1,0 +1,40 @@
+/var/www/html/sensor/status.php
+
+
+<?php
+$devices = ["Office", "GreenFrog", "WhiteFrog"];
+echo "<h2>Sensor Status</h2>";
+echo "<ul>";
+
+foreach ($devices as $device) {
+    $logFile = __DIR__ . "/logs/{$device}.log";
+
+    if (!file_exists($logFile)) {
+        echo "<li><strong>$device:</strong> No data yet</li>";
+        continue;
+    }
+
+    $lines = file($logFile);
+    $lastLine = trim(end($lines));
+
+    echo "<li><strong>$device:</strong> $lastLine</li>";
+}
+echo "</ul>";
+?>
+
+
+
+http://averyizatt.com/sensor/status.php
+
+//config.yml (usually in ~/.homer/assets/config.yml
+
+
+- name: Environment
+  icon: mdi:thermometer-lines
+  items:
+    - name: Frog Tank Sensors
+      logo: /assets/icons/frog.png
+      subtitle: Temp + Humidity
+      tag: monitoring
+      url: http://averyizatt.com/sensor/status.php
+      target: _blank
