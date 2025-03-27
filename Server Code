@@ -16,42 +16,36 @@ server {
 }
 
 
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <DHT.h>
-#include <ArduinoJson.h>
-
-#define DHTPIN 4
-#define DHTTYPE DHT22
-DHT dht(DHTPIN, DHTTYPE);
-
-const char* ssid = "yourSSID";
-const char* password = "yourPASS";
-
-void setup() {
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) delay(500);
-  dht.begin();
-}
-
-void loop() {
-  if (WiFi.status() == WL_CONNECTED) {
-    float temp = dht.readTemperature();
-    float hum = dht.readHumidity();
-
-    StaticJsonDocument<200> doc;
-    doc["sensor_id"] = "tank1";
-    doc["temp"] = temp;
-    doc["hum"] = hum;
-    
-    String json;
-    serializeJson(doc, json);
-
-    HTTPClient http;
-    http.begin("https://averyizatt.com/upload"); // Use HTTPS
-    http.addHeader("Content-Type", "application/json");
-    int httpResponseCode = http.POST(json);
-    http.end();
   }
   delay(10000); // Send every 10 sec
 }
+
+
+
+/var/www/html/sensor/upload.php
+<?php
+$device = $_GET['device'] ?? 'unknown';
+$temp = $_GET['temp'] ?? 'null';
+$hum = $_GET['hum'] ?? 'null';
+
+$logDir = __DIR__ . '/logs';
+if (!file_exists($logDir)) {
+    mkdir($logDir, 0777, true);
+}
+
+$logFile = $logDir . "/{$device}.log";
+$logEntry = "Temp: $temp °F, Humidity: $hum %, Time: " . date('Y-m-d H:i:s') . "\n";
+file_put_contents($logFile, $logEntry, FILE_APPEND);
+
+echo "OK ($device)";
+?>
+
+sudo mkdir -p /var/www/html/sensor/logs
+sudo chown -R www-data:www-data /var/www/html/sensor/logs
+
+
+String deviceName = "GreenFrog"; // change this per device
+
+String serverUrl = "http://averyizatt.com/sensor/upload.php?device=" + deviceName + "&temp=" + String(tempF, 1) + "&hum=" + String(hum, 1);
+
+
