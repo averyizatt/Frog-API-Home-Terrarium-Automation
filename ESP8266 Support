@@ -1,0 +1,73 @@
+#include <ESP8266WiFi.h>
+#include <ESP8266HTTPClient.h>
+#include <DHT.h>
+#include <DHT_U.h>
+
+// Wi-Fi credentials
+const char* ssid = "YOUR_WIFI_SSID";
+const char* password = "YOUR_WIFI_PASSWORD";
+
+// DHT setup
+#define DHTPIN D4            // GPIO pin connected to DHT11 (e.g., D4 on NodeMCU = GPIO2)
+#define DHTTYPE DHT11
+DHT dht(DHTPIN, DHTTYPE);
+
+const String deviceName = "Office"; // Device ID for this ESP8266
+
+void setup() {
+  Serial.begin(115200);
+  delay(100);
+  dht.begin();
+
+  // Connect to Wi-Fi
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected. IP: " + WiFi.localIP().toString());
+}
+
+void loop() {
+  delay(5000); // Wait 5 seconds between readings
+
+  float hum = dht.readHumidity();
+  float tempF = dht.readTemperature(true); // Fahrenheit
+
+  if (isnan(hum) || isnan(tempF)) {
+    Serial.println("Sensor read failed.");
+    return;
+  }
+
+  // Print to Serial
+  Serial.print("Temp: ");
+  Serial.print(tempF);
+  Serial.print(" °F\tHumidity: ");
+  Serial.print(hum);
+  Serial.println(" %");
+
+  // Send to server
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+
+    String url = "http://averyizatt.com/sensor/upload.php?device=" + deviceName + 
+                 "&temp=" + String(tempF, 1) + 
+                 "&hum=" + String(hum, 1);
+
+    http.begin(url);
+    int httpCode = http.GET();
+
+    if (httpCode > 0) {
+      String response = http.getString();
+      Serial.println("Server response: " + response);
+    } else {
+      Serial.print("HTTP error: ");
+      Serial.println(httpCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi not connected!");
+  }
+}
