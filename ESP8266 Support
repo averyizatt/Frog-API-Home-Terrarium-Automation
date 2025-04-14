@@ -1,73 +1,95 @@
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <DHT.h>
-#include <DHT_U.h>
 
-// Wi-Fi credentials
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
+// --- Wi-Fi Setup ---
+const char* ssid = "t";
+const char* password = "";
 
-// DHT setup
-#define DHTPIN D4            // GPIO pin connected to DHT11 (e.g., D4 on NodeMCU = GPIO2)
-#define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
+// --- API Endpoint ---
+const char* server = "";
 
-const String deviceName = "Office"; // Device ID for this ESP8266
+// --- Sensor Config ---
+#define SENSOR_COUNT 3
+const uint8_t dhtPins[SENSOR_COUNT] = {12, 4, 14};  // GPIO12, GPIO4, GPIO14
+
+const char* sensorNames[SENSOR_COUNT] = {
+  "Avicularia Avicularia",  // pinktoe
+  "Red Knee",               // red_knee
+  "Office Sensor"           // office_temp
+};
+
+DHT dhts[SENSOR_COUNT] = {
+  DHT(dhtPins[0], DHT11),
+  DHT(dhtPins[1], DHT11),
+  DHT(dhtPins[2], DHT11)
+};
 
 void setup() {
   Serial.begin(115200);
-  delay(100);
-  dht.begin();
+  delay(500);
+  Serial.println("\n[BOOT] Starting up...");
 
   // Connect to Wi-Fi
   WiFi.begin(ssid, password);
-  Serial.print("Connecting to WiFi");
+  Serial.print("[WIFI] Connecting");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWiFi connected. IP: " + WiFi.localIP().toString());
+  Serial.println("\n[WIFI] Connected!");
+  Serial.print("[WIFI] IP address: ");
+  Serial.println(WiFi.localIP());
+
+  // Initialize DHT sensors
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    Serial.printf("[INIT] Starting DHT sensor '%s' on GPIO%d...\n", sensorNames[i], dhtPins[i]);
+    dhts[i].begin();
+  }
 }
 
 void loop() {
-  delay(5000); // Wait 5 seconds between readings
+  Serial.println("\n--- Reading Sensors ---");
 
-  float hum = dht.readHumidity();
-  float tempF = dht.readTemperature(true); // Fahrenheit
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    Serial.printf("[%s] Reading data...\n", sensorNames[i]);
 
-  if (isnan(hum) || isnan(tempF)) {
-    Serial.println("Sensor read failed.");
-    return;
-  }
+    float tempC = dhts[i].readTemperature();
+    float humidity = dhts[i].readHumidity();
 
-  // Print to Serial
-  Serial.print("Temp: ");
-  Serial.print(tempF);
-  Serial.print(" °F\tHumidity: ");
-  Serial.print(hum);
-  Serial.println(" %");
-
-  // Send to server
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-
-    String url = "http://averyizatt.com/sensor/upload.php?device=" + deviceName + 
-                 "&temp=" + String(tempF, 1) + 
-                 "&hum=" + String(hum, 1);
-
-    http.begin(url);
-    int httpCode = http.GET();
-
-    if (httpCode > 0) {
-      String response = http.getString();
-      Serial.println("Server response: " + response);
-    } else {
-      Serial.print("HTTP error: ");
-      Serial.println(httpCode);
+    if (isnan(tempC) || isnan(humidity)) {
+      Serial.printf("[%s] Failed to read from DHT sensor!\n", sensorNames[i]);
+      continue;
     }
 
+    float tempF = tempC * 1.8 + 32;
+
+    Serial.printf("[%s] Temp: %.1f°F, Humidity: %.1f%%\n", sensorNames[i], tempF, humidity);
+
+    String payload = "{\"sensor\":\"" + String(sensorNames[i]) +
+                     "\",\"temp\":" + String(tempF, 1) +
+                     ",\"humidity\":" + String(humidity, 1) + "}";
+
+    Serial.printf("[%s] Sending payload: %s\n", sensorNames[i], payload.c_str());
+
+    // Secure HTTPS connection per sensor
+    std::unique_ptr<WiFiClientSecure> client(new WiFiClientSecure);
+    client->setInsecure();  // disable SSL cert check for dev/testing
+
+    HTTPClient http;
+    http.begin(*client, server);
+    http.addHeader("Content-Type", "application/json");
+
+    int httpCode = http.POST(payload);
+    String response = http.getString();
+
+    Serial.printf("[%s] HTTP %d - %s\n", sensorNames[i], httpCode, response.c_str());
+
     http.end();
-  } else {
-    Serial.println("WiFi not connected!");
+    delay(250);  // short pause between sensors
   }
+
+  Serial.println("--- Loop complete. Waiting 10 seconds ---\n");
+  delay(10000);  // main loop delay
 }
