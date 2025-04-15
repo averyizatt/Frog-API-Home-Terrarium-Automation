@@ -1,0 +1,154 @@
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include <DHT.h>
+#include <BH1750.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+
+// === Wi-Fi Credentials ===
+const char* ssid = "thefrogpit";
+const char* password = "";
+const char* server = "https://averyizatt.com/frogtank/api/sensor";
+
+// === DHT Config ===
+#define DHTTYPE DHT11
+DHT dht1(25, DHTTYPE);  // Green Tree Frog
+DHT dht2(26, DHTTYPE);  // Plant Tank
+DHT dht3(27, DHTTYPE);  // Living Room
+
+// === Light Sensors ===
+BH1750 light1(0x23);  // Green Tree Frog
+BH1750 light2(0x5C);  // Plant Tank
+
+// === TDS Sensor ===
+#define TDS_PIN 34
+float readTDS() {
+  int analogValue = analogRead(TDS_PIN);
+  float voltage = analogValue * 3.3 / 4095.0;
+  float tds = (133.42 * voltage * voltage * voltage - 255.86 * voltage * voltage + 857.39 * voltage) * 0.5;
+  return tds;
+}
+
+// === Ultrasonic Sensor ===
+#define TRIG_PIN 12
+#define ECHO_PIN 14
+float tank_full_cm = 15.0;
+float getWaterLevelPercent() {
+  digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2);
+  digitalWrite(TRIG_PIN, HIGH); delayMicroseconds(10);
+  digitalWrite(TRIG_PIN, LOW);
+  long duration = pulseIn(ECHO_PIN, HIGH, 30000);
+  float distance = duration * 0.0343 / 2.0;
+  float percent = max(0.0, min(100.0, 100.0 - ((distance / tank_full_cm) * 100.0)));
+  return percent;
+}
+
+// === TFT Display Setup ===
+#define TFT_CS    5
+#define TFT_RST   4
+#define TFT_DC    2
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+// === Wi-Fi + POST ===
+void postData(String sensor, float temp, float hum, float lux, float tds = -1, float level = -1) {
+  std::unique_ptr<WiFiClientSecure> client(new WiFiClientSecure);
+  client->setInsecure();
+  HTTPClient https;
+  https.begin(*client, server);
+  https.addHeader("Content-Type", "application/json");
+
+  String json = "{\"sensor\":\"" + sensor + "\",\"temp\":" + temp + ",\"humidity\":" + hum;
+  if (lux >= 0) json += ",\"lux\":" + String(lux);
+  if (tds >= 0) json += ",\"tds\":" + String(tds);
+  if (level >= 0) json += ",\"water_level\":" + String(level);
+  json += "}";
+
+  https.POST(json);
+  https.end();
+}
+
+// === Animated Bar Display ===
+void animateBar(int start, int end, int y, uint16_t color) {
+  for (int w = start; w <= end; w++) {
+    tft.fillRect(11, y, w, 18, color);
+    delay(10);
+  }
+}
+
+void displayTDSAnimated(float tds) {
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setCursor(10, 10);
+  tft.setTextSize(2);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.println("TDS Monitor");
+
+  tft.setCursor(10, 40);
+  tft.setTextSize(3);
+  if (tds < 200) tft.setTextColor(ST77XX_GREEN);
+  else if (tds < 400) tft.setTextColor(ST77XX_YELLOW);
+  else tft.setTextColor(ST77XX_RED);
+  tft.printf("%.1f ppm\n", tds);
+
+  tft.drawRect(10, 80, 100, 20, ST77XX_WHITE);
+  int barWidth = map((int)tds, 0, 500, 0, 100);
+  barWidth = constrain(barWidth, 0, 100);
+
+  uint16_t color = ST77XX_GREEN;
+  if (tds >= 400) color = ST77XX_RED;
+  else if (tds >= 200) color = ST77XX_YELLOW;
+
+  animateBar(1, barWidth, 81, color);
+
+  tft.setCursor(120, 80);
+  tft.setTextSize(1);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.printf("~%d%%", (int)(tds / 5));
+}
+
+// === Setup ===
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+
+  Wire.begin();
+  dht1.begin(); dht2.begin(); dht3.begin();
+  light1.begin(); light2.begin();
+
+  pinMode(TRIG_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+
+  tft.initR(INITR_BLACKTAB);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(2);
+}
+
+// === Main Loop ===
+void loop() {
+  float tds = readTDS();
+  float water_level = getWaterLevelPercent();
+
+  float gt_temp = dht1.readTemperature(true);
+  float gt_hum = dht1.readHumidity();
+  float gt_lux = light1.readLightLevel();
+
+  float pt_temp = dht2.readTemperature(true);
+  float pt_hum = dht2.readHumidity();
+  float pt_lux = light2.readLightLevel();
+
+  float lr_temp = dht3.readTemperature(true);
+  float lr_hum = dht3.readHumidity();
+
+  postData("Green Tree Frog", gt_temp, gt_hum, gt_lux);
+  delay(250);
+  postData("Plant Tank", pt_temp, pt_hum, pt_lux);
+  delay(250);
+  postData("Living Room", lr_temp, lr_hum, -1, tds, water_level);
+  delay(250);
+
+  displayTDSAnimated(tds);
+  delay(10000);
+}
