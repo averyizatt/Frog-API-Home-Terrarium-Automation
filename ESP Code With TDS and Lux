@@ -4,26 +4,32 @@
 #include <DHT.h>
 #include <BH1750.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
-#include <SPI.h>
+#include <Adafruit_SSD1306.h>
+#include <Wire.h>
 
 // === Wi-Fi Credentials ===
 const char* ssid = "thefrogpit";
-const char* password = "";
+const char* password = "getinthefuckingfrogpit";
 const char* server = "https://averyizatt.com/frogtank/api/sensor";
+
+// === OLED Display Config ===
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // === DHT Config ===
 #define DHTTYPE DHT11
-DHT dht1(25, DHTTYPE);  // Green Tree Frog
-DHT dht2(26, DHTTYPE);  // Plant Tank
-DHT dht3(27, DHTTYPE);  // Living Room
+DHT dht1(1, DHTTYPE);  // GPIO1 = Green Tree Frog
+DHT dht2(2, DHTTYPE);  // GPIO2 = Plant Tank
+DHT dht3(3, DHTTYPE);  // GPIO3 = Living Room
 
-// === Light Sensors ===
+// === Light Sensors (BH1750) ===
 BH1750 light1(0x23);  // Green Tree Frog
 BH1750 light2(0x5C);  // Plant Tank
 
-// === TDS Sensor ===
-#define TDS_PIN 34
+// === TDS Sensor (CQRobot) ===
+#define TDS_PIN 4  // GPIO4 (ADC1)
 float readTDS() {
   int analogValue = analogRead(TDS_PIN);
   float voltage = analogValue * 3.3 / 4095.0;
@@ -32,8 +38,8 @@ float readTDS() {
 }
 
 // === Ultrasonic Sensor ===
-#define TRIG_PIN 12
-#define ECHO_PIN 14
+#define TRIG_PIN 5
+#define ECHO_PIN 6
 float tank_full_cm = 15.0;
 float getWaterLevelPercent() {
   digitalWrite(TRIG_PIN, LOW); delayMicroseconds(2);
@@ -45,13 +51,7 @@ float getWaterLevelPercent() {
   return percent;
 }
 
-// === TFT Display Setup ===
-#define TFT_CS    5
-#define TFT_RST   4
-#define TFT_DC    2
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-
-// === Wi-Fi + POST ===
+// === HTTPS POST Function ===
 void postData(String sensor, float temp, float hum, float lux, float tds = -1, float level = -1) {
   std::unique_ptr<WiFiClientSecure> client(new WiFiClientSecure);
   client->setInsecure();
@@ -69,45 +69,6 @@ void postData(String sensor, float temp, float hum, float lux, float tds = -1, f
   https.end();
 }
 
-// === Animated Bar Display ===
-void animateBar(int start, int end, int y, uint16_t color) {
-  for (int w = start; w <= end; w++) {
-    tft.fillRect(11, y, w, 18, color);
-    delay(10);
-  }
-}
-
-void displayTDSAnimated(float tds) {
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setCursor(10, 10);
-  tft.setTextSize(2);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.println("TDS Monitor");
-
-  tft.setCursor(10, 40);
-  tft.setTextSize(3);
-  if (tds < 200) tft.setTextColor(ST77XX_GREEN);
-  else if (tds < 400) tft.setTextColor(ST77XX_YELLOW);
-  else tft.setTextColor(ST77XX_RED);
-  tft.printf("%.1f ppm\n", tds);
-
-  tft.drawRect(10, 80, 100, 20, ST77XX_WHITE);
-  int barWidth = map((int)tds, 0, 500, 0, 100);
-  barWidth = constrain(barWidth, 0, 100);
-
-  uint16_t color = ST77XX_GREEN;
-  if (tds >= 400) color = ST77XX_RED;
-  else if (tds >= 200) color = ST77XX_YELLOW;
-
-  animateBar(1, barWidth, 81, color);
-
-  tft.setCursor(120, 80);
-  tft.setTextSize(1);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.printf("~%d%%", (int)(tds / 5));
-}
-
-// === Setup ===
 void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
@@ -120,13 +81,12 @@ void setup() {
   pinMode(TRIG_PIN, OUTPUT);
   pinMode(ECHO_PIN, INPUT);
 
-  tft.initR(INITR_BLACKTAB);
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setTextSize(2);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
 }
 
-// === Main Loop ===
 void loop() {
   float tds = readTDS();
   float water_level = getWaterLevelPercent();
@@ -142,6 +102,7 @@ void loop() {
   float lr_temp = dht3.readTemperature(true);
   float lr_hum = dht3.readHumidity();
 
+  // Send data to server
   postData("Green Tree Frog", gt_temp, gt_hum, gt_lux);
   delay(250);
   postData("Plant Tank", pt_temp, pt_hum, pt_lux);
@@ -149,6 +110,23 @@ void loop() {
   postData("Living Room", lr_temp, lr_hum, -1, tds, water_level);
   delay(250);
 
-  displayTDSAnimated(tds);
+  // Display TDS + water level on OLED
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+  display.println("TDS Monitor");
+
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  display.print(tds, 1);
+  display.println(" ppm");
+
+  display.setTextSize(1);
+  display.setCursor(0, 40);
+  display.print("Water Level: ");
+  display.print(water_level, 0);
+  display.println("%");
+
+  display.display();
   delay(10000);
 }
