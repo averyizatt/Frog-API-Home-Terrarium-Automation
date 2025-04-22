@@ -9,8 +9,8 @@
 
 // === Wi-Fi Credentials ===
 const char* ssid = "thefrogpit";
-const char* password = "getinthefuckingfrogpit";
-const char* server = "https://averyizatt.com/frogtank/api/sensor";
+const char* password = "";
+const char* server = "";
 
 // === OLED Display Config ===
 #define SCREEN_WIDTH 128
