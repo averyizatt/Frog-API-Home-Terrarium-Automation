@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Frog Tank Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      background: #111 url("/frogtank/frog-bg.jpg") no-repeat center center fixed;
+      background-size: cover;
+      color: #eee;
+      font-family: "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 2rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+      gap: 2rem;
+    }
+
+    .tile {
+      background: rgba(28, 28, 28, 0.9);
+      border-radius: 12px;
+      padding: 1rem;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+      text-align: center;
+      position: relative;
+    }
+
+    .tile h2 {
+      font-size: 1.2rem;
+      margin: 0.5rem 0 0.5rem;
+    }
+
+    .reading {
+      font-size: 0.95rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .last-update {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 0.5rem;
+    }
+
+    canvas {
+      width: 100% !important;
+      max-height: 180px;
+      aspect-ratio: 2 / 1;
+    }
+
+    .alert-icon {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 1.3rem;
+    }
+
+    .alert-icon.good {
+      color: #00cc00;
+    }
+
+    .alert-icon.warn {
+      color: #ff9900;
+    }
+
+    .alert-icon.bad {
+      color: #ff3333;
+    }
+
+    .offline {
+      color: red;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid" id="sensor-grid"></div>
+
+  <script>
+    const base = "/frogtank";
+
+    const sensors = [
+      { id: "whites", label: "Whites Tree Frog Terrarium" },
+      { id: "green", label: "Green Tree Frog Terrarium" },
+      { id: "office", label: "Office Sensor" },
+      { id: "other", label: "Other Sensor" },
+      { id: "red knee", label: "Red Knee Tarantula" },
+      { id: "avicularia avicularia", label: "Avicularia Avicularia Tarantula" },
+      { id: "living room", label: "Living Room" },
+      { id: "bedroom", label: "Bedroom" },
+      { id: "3d printer", label: "3D Printer" }
+    ];
+
+    const thresholds = {
+      "whites": { temp: [70, 85], humidity: [50, 80] },
+      "green": { temp: [72, 85], humidity: [50, 80] },
+      "red knee": { temp: [75, 80], humidity: [60, 70] },
+      "avicularia avicularia": { temp: [75, 85], humidity: [70, 80] },
+      "office": { temp: [0, 100], humidity: [0, 100] },
+      "other": { temp: [0, 100], humidity: [0, 100] },
+      "living room": { temp: [60, 85], humidity: [20, 60] },
+      "bedroom": { temp: [60, 85], humidity: [20, 60] },
+      "3d printer": { temp: [0, 100], humidity: [0, 100] }
+    };
+
+    const comingSoon = [
+      { id: "coming-1", label: "Coming Soon 1" },
+      { id: "coming-2", label: "Coming Soon 2" },
+      { id: "coming-3", label: "Coming Soon 3" }
+    ];
+
+    const grid = document.getElementById("sensor-grid");
+    const charts = {};
+
+    [...sensors, ...comingSoon].forEach(sensor => {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+
+      tile.innerHTML = `
+        <span id="alert-${sensor.id}" class="alert-icon">•</span>
+        <h2>${sensor.label}</h2>
+        <div class="reading" id="info-${sensor.id}">Loading...</div>
+        <canvas id="chart-${sensor.id}"></canvas>
+        <div class="last-update" id="last-${sensor.id}"></div>
+      `;
+      grid.appendChild(tile);
+    });
+
+    function formatFullTime(ts) {
+      const date = new Date(ts);
+      return date.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "numeric",
+        hour12: true
+      });
+    }
+
+    function updateSensor(sensor) {
+      fetch(`${base}/sensor/${sensor.id}`)
+        .then(res => res.json())
+        .then(data => {
+          const info = document.getElementById(`info-${sensor.id}`);
+          const alertIcon = document.getElementById(`alert-${sensor.id}`);
+          const updated = document.getElementById(`last-${sensor.id}`);
+
+          if (data.error) {
+            info.innerHTML = "<span class='offline'>No data available</span>";
+            alertIcon.className = "alert-icon warn";
+            return;
+          }
+
+          const temp = parseFloat(data.temp);
+          const humidity = parseFloat(data.humidity);
+          const limits = thresholds[sensor.id] || thresholds.other;
+
+          let status = "good";
+          if (temp < limits.temp[0] || temp > limits.temp[1] || humidity < limits.humidity[0] || humidity > limits.humidity[1]) {
+            status = "bad";
+          }
+
+          const now = Date.now();
+          const sensorTime = new Date(data.time).getTime();
+          const isOnline = (now - sensorTime) < 60 * 60 * 1000;
+
+          if (!isOnline) {
+            status = "warn";
+          }
+
+          alertIcon.className = `alert-icon ${status}`;
+          alertIcon.textContent = "●";
+
+          const formatted = formatFullTime(sensorTime);
+
+          info.innerHTML = isOnline
+            ? `Temp: ${temp}°F | Humidity: ${humidity}%`
+            : `<span class="offline">Offline since ${formatted}</span>`;
+          updated.textContent = `Last updated: ${formatted}`;
+        });
+
+      fetch(`${base}/sensor/${sensor.id}-log`)
+        .then(res => res.text())
+        .then(csv => {
+          const rows = csv.trim().split("\n");
+          const labels = [], temp = [], hum = [];
+          let lastTime = 0;
+
+          rows.forEach(r => {
+            const [time, , t, h] = r.split(",");
+            const ts = new Date(time).getTime();
+
+            if (ts - lastTime >= 30 * 60 * 1000) {
+              const tObj = new Date(ts);
+              const label = tObj.toLocaleTimeString("en-US", {
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: true
+              });
+              labels.push(label);
+              temp.push(parseFloat(t));
+              hum.push(parseFloat(h));
+              lastTime = ts;
+            }
+          });
+
+          const ctx = document.getElementById(`chart-${sensor.id}`);
+          if (!charts[sensor.id]) {
+            charts[sensor.id] = new Chart(ctx, {
+              type: "line",
+              data: {
+                labels: labels,
+                datasets: [
+                  {
+                    label: "Temp (°F)",
+                    data: temp,
+                    borderColor: "orange",
+                    yAxisID: "tempAxis",
+                    fill: false,
+                    tension: 0.2
+                  },
+                  {
+                    label: "Humidity (%)",
+                    data: hum,
+                    borderColor: "lightblue",
+                    yAxisID: "humAxis",
+                    fill: false,
+                    tension: 0.2
+                  }
+                ]
+              },
+              options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                  legend: {
+                    labels: { color: "#eee" }
+                  }
+                },
+                scales: {
+                  x: { ticks: { color: "#aaa" } },
+                  tempAxis: {
+                    type: 'linear',
+                    position: 'left',
+                    min: 0,
+                    max: 100,
+                    title: {
+                      display: true,
+                      text: 'Temp (°F)',
+                      color: 'orange'
+                    },
+                    ticks: { color: 'orange' }
+                  },
+                  humAxis: {
+                    type: 'linear',
+                    position: 'right',
+                    min: 0,
+                    max: 100,
+                    title: {
+                      display: true,
+                      text: 'Humidity (%)',
+                      color: 'lightblue'
+                    },
+                    ticks: { color: 'lightblue' },
+                    grid: { drawOnChartArea: false }
+                  }
+                }
+              }
+            });
+          } else {
+            charts[sensor.id].data.labels = labels;
+            charts[sensor.id].data.datasets[0].data = temp;
+            charts[sensor.id].data.datasets[1].data = hum;
+            charts[sensor.id].update();
+          }
+        });
+    }
+
+    function createComingSoonChart(id) {
+      const ctx = document.getElementById(`chart-${id}`);
+      new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: Array.from({ length: 10 }, (_, i) => `T${i}`),
+          datasets: [
+            {
+              label: "Temp (°F)",
+              data: Array(10).fill(null),
+              borderColor: "#444",
+              borderDash: [5, 5],
+              fill: false
+            },
+            {
+              label: "Humidity (%)",
+              data: Array(10).fill(null),
+              borderColor: "#555",
+              borderDash: [5, 5],
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: "#777" } }
+          },
+          scales: {
+            x: { ticks: { color: "#666" } },
+            y: {
+              min: 0,
+              max: 100,
+              ticks: { color: "#666" },
+              title: {
+                display: true,
+                text: "Coming Soon",
+                color: "#777"
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function refreshAll() {
+      sensors.forEach(updateSensor);
+      comingSoon.forEach(sensor => createComingSoonChart(sensor.id));
+    }
+
+    refreshAll();
+    setInterval(refreshAll, 15000);
+  </script>
+</body>
+</html>
