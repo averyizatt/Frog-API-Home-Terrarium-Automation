@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Frog Tank Graphs</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      background: #111 url("frog-bg.jpg") no-repeat center center fixed;
+      background-size: cover;
+      color: #eee;
+      font-family: sans-serif;
+      margin: 20px;
+      text-align: center;
+    }
+
+    .sensor-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 30px;
+    }
+
+    .sensor-card {
+      background: rgba(30, 30, 30, 0.9);
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+      width: 500px;
+    }
+
+    canvas {
+      background: #222;
+      border-radius: 5px;
+      width: 100%;
+      height: 300px;
+    }
+
+    h2 {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="sensor-grid">
+    <div class="sensor-card">
+      <h2>Whites Tree Frog</h2>
+      <canvas id="chart-whites"></canvas>
+    </div>
+    <div class="sensor-card">
+      <h2>Green Tree Frog</h2>
+      <canvas id="chart-green"></canvas>
+    </div>
+    <div class="sensor-card">
+      <h2>Office Sensor</h2>
+      <canvas id="chart-office"></canvas>
+    </div>
+    <div class="sensor-card">
+      <h2>Other Sensor</h2>
+      <canvas id="chart-other"></canvas>
+    </div>
+    <div class="sensor-card">
+      <h2>Red Knee Tarantula</h2>
+      <canvas id="chart-red knee"></canvas>
+    </div>
+    <div class="sensor-card">
+      <h2>Avicularia Avicularia</h2>
+      <canvas id="chart-avicularia avicularia"></canvas>
+    </div>
+  </div>
+
+  <script>
+    const sensors = [
+      "whites",
+      "green",
+      "office",
+      "other",
+      "red knee",
+      "avicularia avicularia"
+    ];
+
+    sensors.forEach(sensor => {
+      fetch(`/frogtank/sensor/${sensor}-log`)
+        .then(res => res.text())
+        .then(csv => {
+          const rows = csv.trim().split("\n").slice(-100);
+          const labels = [], temp = [], hum = [];
+
+          rows.forEach(r => {
+            const [time, , t, h] = r.split(",");
+            labels.push(new Date(time).toLocaleTimeString("en-US", {
+              hour: 'numeric',
+              minute: 'numeric',
+              hour12: true
+            }));
+            temp.push(parseFloat(t));
+            hum.push(parseFloat(h));
+          });
+
+          new Chart(document.getElementById(`chart-${sensor}`), {
+            type: "line",
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: "Temp (°F)",
+                  data: temp,
+                  borderColor: "orange",
+                  fill: false,
+                  yAxisID: 'temp'
+                },
+                {
+                  label: "Humidity (%)",
+                  data: hum,
+                  borderColor: "lightblue",
+                  fill: false,
+                  yAxisID: 'humidity'
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: {
+                x: {
+                  ticks: { color: "#aaa" }
+                },
+                temp: {
+                  type: 'linear',
+                  position: 'left',
+                  min: 0,
+                  max: 100,
+                  ticks: { color: 'orange' },
+                  title: {
+                    display: true,
+                    text: "Temp (°F)",
+                    color: 'orange'
+                  }
+                },
+                humidity: {
+                  type: 'linear',
+                  position: 'right',
+                  min: 0,
+                  max: 100,
+                  ticks: { color: 'lightblue' },
+                  title: {
+                    display: true,
+                    text: "Humidity (%)",
+                    color: 'lightblue'
+                  },
+                  grid: {
+                    drawOnChartArea: false
+                  }
+                }
+              },
+              plugins: {
+                legend: {
+                  labels: { color: "#eee" }
+                }
+              }
+            }
+          });
+        })
+        .catch(err => {
+          console.error(`Error loading data for ${sensor}:`, err);
+        });
+    });
+  </script>
+</body>
+</html>
