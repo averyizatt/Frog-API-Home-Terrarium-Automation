@@ -7,6 +7,20 @@
 #include <Adafruit_SSD1306.h>
 #include <Wire.h>
 
+
+/*
+Includes:
+Ultrasonic sensor
+3x DHT11 
+2x BH1750
+TDS sensor
+Wi-Fi
+HTTPS POST
+Oled display
+
+
+*/
+
 // === Wi-Fi Credentials ===
 const char* ssid = "thefrogpit";
 const char* password = "";
