@@ -1,0 +1,160 @@
+#include <Wire.h>
+#include <DHT.h>
+#include <ESP8266WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+#include <BH1750.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+
+// --- Wi-Fi Setup ---
+const char* ssid = "your_wifi_name";
+const char* password = "your_wifi_password";
+
+// --- API Endpoint ---
+const char* server = "https://yourserver.com/frogtank/api/sensor";
+
+// --- DHT11 Config ---
+#define SENSOR_COUNT 2
+const uint8_t dhtPins[SENSOR_COUNT] = {13, 12};  // D7 (GPIO13), D6 (GPIO12)
+const char* sensorNames[SENSOR_COUNT] = {
+  "Bedroom",
+  "White Tree Frog Terrarium"
+};
+DHT dhts[SENSOR_COUNT] = {
+  DHT(dhtPins[0], DHT11),
+  DHT(dhtPins[1], DHT11)
+};
+
+// --- BH1750 Lux Sensor ---
+BH1750 lightMeter(0x23);  // I2C address
+
+// --- SPI TFT Display Pins ---
+#define TFT_CS   D2  // GPIO4
+#define TFT_DC   D1  // GPIO5
+#define TFT_RST  D0  // GPIO16
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+
+// --- Wi-Fi Reconnect Config ---
+const unsigned long WIFI_TIMEOUT_MS = 10000;
+const unsigned long WIFI_RECOVER_MS = 30000;
+unsigned long wifiDisconnectedSince = 0;
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+  Serial.println("[BOOT] Wemos D1 R1 Node + Display Starting...");
+
+  connectWiFi();
+
+  // DHT Sensors
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    dhts[i].begin();
+    Serial.printf("[INIT] DHT '%s' on GPIO%d\n", sensorNames[i], dhtPins[i]);
+  }
+
+  // BH1750 Lux Sensor
+  Wire.begin(D4, D3);  // SDA = D4 (GPIO2), SCL = D3 (GPIO0)
+  if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
+    Serial.println("[INIT] BH1750 initialized.");
+  } else {
+    Serial.println("[ERROR] BH1750 init failed!");
+  }
+
+  // TFT Display
+  tft.initR(INITR_BLACKTAB);
+  tft.setRotation(1);
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setTextColor(ST77XX_WHITE);
+  tft.setTextSize(1);
+  Serial.println("[INIT] TFT ready.");
+}
+
+void loop() {
+  autoReconnectWiFi();
+
+  float lux = lightMeter.readLightLevel();
+  float temps[SENSOR_COUNT];
+  float hums[SENSOR_COUNT];
+
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    float tempC = dhts[i].readTemperature();
+    float hum = dhts[i].readHumidity();
+    if (isnan(tempC) || isnan(hum)) {
+      Serial.printf("[%s] DHT read failed\n", sensorNames[i]);
+      continue;
+    }
+
+    temps[i] = tempC * 1.8 + 32;
+    hums[i] = hum;
+
+    String payload = "{\"sensor\":\"" + String(sensorNames[i]) +
+                     "\",\"temp\":" + String(temps[i], 1) +
+                     ",\"humidity\":" + String(hums[i], 1);
+
+    if (i == 1) {
+      payload += ",\"lux\":" + String(lux, 1);
+    }
+
+    payload += "}";
+
+    Serial.printf("[%s] POST: %s\n", sensorNames[i], payload.c_str());
+
+    if (WiFi.status() == WL_CONNECTED) {
+      std::unique_ptr<WiFiClientSecure> client(new WiFiClientSecure);
+      client->setInsecure();
+      HTTPClient http;
+      http.begin(*client, server);
+      http.addHeader("Content-Type", "application/json");
+      int code = http.POST(payload);
+      Serial.printf("[%s] HTTP %d\n", sensorNames[i], code);
+      http.end();
+    } else {
+      Serial.println("[WARN] Wi-Fi not connected, skipping POST.");
+    }
+
+    delay(250);
+  }
+
+  // Display data
+  tft.fillScreen(ST77XX_BLACK);
+  tft.setCursor(0, 0);
+  tft.printf("Bedroom:\nTemp: %.1fF\nHum:  %.1f%%\n\n", temps[0], hums[0]);
+  tft.printf("Frog Tank:\nTemp: %.1fF\nHum:  %.1f%%\nLux:  %.1f lx\n", temps[1], hums[1], lux);
+
+  Serial.println("--- Loop Complete ---\n");
+  delay(10000);
+}
+
+void connectWiFi() {
+  WiFi.begin(ssid, password);
+  Serial.print("[WIFI] Connecting");
+  unsigned long start = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_TIMEOUT_MS) {
+    delay(500);
+    Serial.print(".");
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.printf("\n[WIFI] Connected: %s\n", WiFi.localIP().toString().c_str());
+    wifiDisconnectedSince = 0;
+  } else {
+    Serial.println("\n[WIFI] Failed.");
+    wifiDisconnectedSince = millis();
+  }
+}
+
+void autoReconnectWiFi() {
+  if (WiFi.status() != WL_CONNECTED) {
+    if (wifiDisconnectedSince == 0) {
+      wifiDisconnectedSince = millis();
+    }
+    if (millis() - wifiDisconnectedSince > WIFI_RECOVER_MS) {
+      Serial.println("[WIFI] Rebooting due to lost connection...");
+      ESP.restart();
+    }
+    connectWiFi();
+  } else {
+    wifiDisconnectedSince = 0;
+  }
+}
