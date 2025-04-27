@@ -9,18 +9,18 @@
 #include <SPI.h>
 
 // --- Wi-Fi Setup ---
-const char* ssid = "your_wifi_name";
-const char* password = "your_wifi_password";
+const char* ssid = "";         
+const char* password = ""; 
 
 // --- API Endpoint ---
-const char* server = "https://yourserver.com/frogtank/api/sensor";
+const char* server = "https://averyizatt.com/frogtank/api/sensor"; 
 
 // --- DHT11 Config ---
 #define SENSOR_COUNT 2
-const uint8_t dhtPins[SENSOR_COUNT] = {13, 12};  // D7 (GPIO13), D6 (GPIO12)
+const uint8_t dhtPins[SENSOR_COUNT] = {D8, D6};  
 const char* sensorNames[SENSOR_COUNT] = {
-  "Bedroom",
-  "White Tree Frog Terrarium"
+  "White Tree Frog Terrarium",  // (fixed)
+  "Bedroom"                     // (fixed)
 };
 DHT dhts[SENSOR_COUNT] = {
   DHT(dhtPins[0], DHT11),
@@ -28,12 +28,12 @@ DHT dhts[SENSOR_COUNT] = {
 };
 
 // --- BH1750 Lux Sensor ---
-BH1750 lightMeter(0x23);  // I2C address
+BH1750 lightMeter(0x23);  
 
 // --- SPI TFT Display Pins ---
-#define TFT_CS   D2  // GPIO4
-#define TFT_DC   D1  // GPIO5
-#define TFT_RST  D0  // GPIO16
+#define TFT_CS   D2  
+#define TFT_DC   D1  
+#define TFT_RST  D0  
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // --- Wi-Fi Reconnect Config ---
@@ -41,23 +41,25 @@ const unsigned long WIFI_TIMEOUT_MS = 10000;
 const unsigned long WIFI_RECOVER_MS = 30000;
 unsigned long wifiDisconnectedSince = 0;
 
-bool blinkOpen = true;  // Frog animation toggle
+bool postSuccess = false;  // Track post success
 
 void setup() {
+  delay(1000);
   Serial.begin(115200);
-  delay(500);
-  Serial.println("[BOOT] Wemos D1 R1 Node + Frog Display Starting...");
+  delay(1000);
+
+  Serial.println("[BOOT] Wemos D1 R1 Node Starting...");
 
   connectWiFi();
 
   // DHT Sensors
   for (int i = 0; i < SENSOR_COUNT; i++) {
     dhts[i].begin();
-    Serial.printf("[INIT] DHT '%s' on GPIO%d\n", sensorNames[i], dhtPins[i]);
+    Serial.printf("[INIT] DHT '%s' on D%d\n", sensorNames[i], dhtPins[i]);
   }
 
   // BH1750 Lux Sensor
-  Wire.begin(D4, D3);  // SDA = D4 (GPIO2), SCL = D3 (GPIO0)
+  Wire.begin(D4, D3);  
   if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
     Serial.println("[INIT] BH1750 initialized.");
   } else {
@@ -65,11 +67,15 @@ void setup() {
   }
 
   // TFT Display
-  tft.initR(INITR_BLACKTAB);
-  tft.setRotation(1);
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setTextSize(1);
+  tft.initR(INITR_MINI160x80);   
+  tft.setSPISpeed(16000000);     
+  tft.setRotation(3);            
+  tft.fillScreen(ST77XX_BLACK);  
+  tft.setFont(NULL);              // Use built-in font
+  tft.setTextSize(1);             // SMALL font
+  tft.setTextColor(ST77XX_WHITE); 
+  tft.invertDisplay(true);        // Fix inverted colors
+
   Serial.println("[INIT] TFT ready.");
 }
 
@@ -79,6 +85,7 @@ void loop() {
   float lux = lightMeter.readLightLevel();
   float temps[SENSOR_COUNT];
   float hums[SENSOR_COUNT];
+  postSuccess = false; // Reset success flag every loop
 
   for (int i = 0; i < SENSOR_COUNT; i++) {
     float tempC = dhts[i].readTemperature();
@@ -95,7 +102,7 @@ void loop() {
                      "\",\"temp\":" + String(temps[i], 1) +
                      ",\"humidity\":" + String(hums[i], 1);
 
-    if (i == 1) {
+    if (i == 0) {  // Frog Tank sensor
       payload += ",\"lux\":" + String(lux, 1);
     }
 
@@ -111,6 +118,9 @@ void loop() {
       http.addHeader("Content-Type", "application/json");
       int code = http.POST(payload);
       Serial.printf("[%s] HTTP %d\n", sensorNames[i], code);
+      if (code == 200) {
+        postSuccess = true;  // Mark success
+      }
       http.end();
     } else {
       Serial.println("[WARN] Wi-Fi not connected, skipping POST.");
@@ -119,35 +129,76 @@ void loop() {
     delay(250);
   }
 
-  // --- Update Display with Frog Blink Animation ---
-  tft.fillScreen(ST77XX_BLACK);
-  tft.setTextColor(ST77XX_WHITE);
-  tft.setTextSize(1);
-  tft.setCursor(0, 0);
+  // --- Update Display ---
+  tft.fillScreen(ST77XX_BLACK);  // Full black background
+  
+  
+uint16_t titleColor, tempColor, humColor, luxColor, green;
 
-  // Frog Tank
-  tft.println("🐸 Frog Tank");
-  tft.printf("Temp: %.1fF\n", temps[1]);
-  tft.printf("Hum : %.1f%%\n", hums[1]);
-  tft.printf("Lux : %.1f lx\n\n", lux);
+if (lux > 10) {
+  titleColor = ST77XX_WHITE;
+  tempColor = ST77XX_BLUE;
+  humColor = ST77XX_YELLOW;
+  luxColor = 0x7D7C;
+  green = ST77XX_GREEN;
+;
+} else {
+  green = 
+  titleColor = 0x4208;  
+  tempColor = 0x4208;
+  humColor = 0x4208;
+  luxColor = 0x4208;
 
-  // Bedroom
-  tft.println("🛏 Bedroom");
-  tft.printf("Temp: %.1fF\n", temps[0]);
-  tft.printf("Hum : %.1f%%\n\n", hums[0]);
-
-  // Frog Blink
-  tft.setCursor(0, 110);
-  tft.setTextSize(2);
-  if (blinkOpen) {
-    tft.println("🐸 👀");  // eyes open
-  } else {
-    tft.println("🐸 😑");  // eyes closed
   }
-  blinkOpen = !blinkOpen;  // toggle next frame
+  
+  tft.setTextSize(1);             // SMALL clean text
+
+
+  // Title
+  tft.setCursor(30, 5);
+  tft.setTextColor(titleColor);
+  tft.println("Whites Frog Tank");
+
+  // Frog Tank Data
+  tft.setCursor(20, 15);
+  tft.setTextColor(tempColor);
+  tft.printf("Temp: %.1fF", temps[0]);
+
+  tft.setCursor(20, 25);
+  tft.setTextColor(humColor);
+  tft.printf("Hum : %.1f%%", hums[0]);
+
+  tft.setCursor(20, 35);
+  tft.setTextColor(luxColor);
+  tft.printf("Lux  : %.1f lx", lux);
+
+  tft.setCursor(30, 45);
+  tft.setTextColor(titleColor);
+  tft.println("Bedroom");
+
+  // Bedroom Data
+  tft.setCursor(20, 55);
+  tft.setTextColor(tempColor);
+  tft.printf("Temp: %.1fF", temps[1]);
+
+  tft.setCursor(20, 65);
+  tft.setTextColor(humColor);
+  tft.printf("Hum : %.1f%%", hums[1]);
+
+  // HTTP POST Confirmation
+  if (postSuccess) {
+    tft.setCursor(90, 60);
+    tft.setTextColor(green);
+    tft.println("POSTED!");
+  } else {
+        tft.setCursor(90, 65);
+    tft.setTextColor(tempColor);
+    tft.println("FAILED!");
+  }
+
 
   Serial.println("--- Loop Complete ---\n");
-  delay(10000);
+  delay(10000);  // 10 seconds between updates
 }
 
 void connectWiFi() {
