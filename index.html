@@ -27,6 +27,7 @@
       box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
       text-align: center;
       position: relative;
+      cursor: pointer;
     }
 
     .tile h2 {
@@ -62,10 +63,6 @@
       color: #00cc00;
     }
 
-    .alert-icon.warn {
-      color: #ff9900;
-    }
-
     .alert-icon.bad {
       color: #ff3333;
     }
@@ -73,14 +70,99 @@
     .offline {
       color: red;
     }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background: #222;
+      padding: 20px;
+      border-radius: 10px;
+      width: 90%;
+      max-width: 700px;
+      text-align: center;
+      position: relative;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 10px;
+      right: 20px;
+      font-size: 24px;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    .scale-buttons {
+      margin-bottom: 10px;
+    }
+
+    .scale-buttons button {
+      background: #333;
+      color: #eee;
+      border: none;
+      padding: 8px 12px;
+      margin: 0 5px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .scale-buttons button:hover {
+      background: #555;
+    }
+
+    .filter-dropdown {
+      margin-bottom: 10px;
+    }
+
+    .filter-dropdown select {
+      background: #333;
+      color: #eee;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <div class="grid" id="sensor-grid"></div>
 
+  <!-- Popup Modal -->
+  <div id="popup" class="modal">
+    <div class="modal-content">
+      <span class="close-btn" onclick="closePopup()">×</span>
+      <h2 id="popup-title">Sensor Graph</h2>
+      <div class="scale-buttons">
+        <button onclick="setTimescale('hour')">Hour</button>
+        <button onclick="setTimescale('day')">Day</button>
+        <button onclick="setTimescale('week')">Week</button>
+        <button onclick="setTimescale('month')">Month</button>
+      </div>
+      <div class="filter-dropdown">
+        <select id="filter-select" onchange="setFilter()">
+          <option value="all">All Data</option>
+          <option value="day">Daytime (7AM–7PM)</option>
+          <option value="night">Nighttime (7PM–7AM)</option>
+        </select>
+      </div>
+      <canvas id="popup-chart" style="height:400px;"></canvas>
+    </div>
+  </div>
+
   <script>
     const base = "/frogtank";
-
     const sensors = [
       { id: "whites", label: "Whites Tree Frog Terrarium" },
       { id: "green", label: "Green Tree Frog Terrarium" },
@@ -93,18 +175,6 @@
       { id: "3d printer", label: "3D Printer" }
     ];
 
-    const thresholds = {
-      "whites": { temp: [70, 85], humidity: [50, 80] },
-      "green": { temp: [72, 85], humidity: [50, 80] },
-      "red knee": { temp: [75, 80], humidity: [60, 70] },
-      "avicularia avicularia": { temp: [75, 85], humidity: [70, 80] },
-      "office": { temp: [0, 100], humidity: [0, 100] },
-      "other": { temp: [0, 100], humidity: [0, 100] },
-      "living room": { temp: [60, 85], humidity: [20, 60] },
-      "bedroom": { temp: [60, 85], humidity: [20, 60] },
-      "3d printer": { temp: [0, 100], humidity: [0, 100] }
-    };
-
     const comingSoon = [
       { id: "coming-1", label: "Coming Soon 1" },
       { id: "coming-2", label: "Coming Soon 2" },
@@ -112,12 +182,16 @@
     ];
 
     const grid = document.getElementById("sensor-grid");
-    const charts = {};
+    const miniCharts = {};
+    let popupSensorId = "";
+    let popupChart = null;
+    let currentScale = "hour";
+    let currentFilter = "all";
 
     [...sensors, ...comingSoon].forEach(sensor => {
       const tile = document.createElement("div");
       tile.className = "tile";
-
+      tile.setAttribute("data-sensor-id", sensor.id);
       tile.innerHTML = `
         <span id="alert-${sensor.id}" class="alert-icon">•</span>
         <h2>${sensor.label}</h2>
@@ -149,25 +223,19 @@
 
           if (data.error) {
             info.innerHTML = "<span class='offline'>No data available</span>";
-            alertIcon.className = "alert-icon warn";
+            alertIcon.className = "alert-icon bad";
             return;
           }
 
           const temp = parseFloat(data.temp);
           const humidity = parseFloat(data.humidity);
-          const limits = thresholds[sensor.id] || thresholds.other;
-
-          let status = "good";
-          if (temp < limits.temp[0] || temp > limits.temp[1] || humidity < limits.humidity[0] || humidity > limits.humidity[1]) {
-            status = "bad";
-          }
-
           const now = Date.now();
           const sensorTime = new Date(data.time).getTime();
-          const isOnline = (now - sensorTime) < 60 * 60 * 1000;
+          const isOnline = (now - sensorTime) < 10 * 60 * 1000;  // 10 minutes
 
+          let status = "good";
           if (!isOnline) {
-            status = "warn";
+            status = "bad";
           }
 
           alertIcon.className = `alert-icon ${status}`;
@@ -180,157 +248,172 @@
             : `<span class="offline">Offline since ${formatted}</span>`;
           updated.textContent = `Last updated: ${formatted}`;
         });
+    }
 
-      fetch(`${base}/sensor/${sensor.id}-log`)
-        .then(res => res.text())
-        .then(csv => {
-          const rows = csv.trim().split("\n");
-          const labels = [], temp = [], hum = [];
-          let lastTime = 0;
+    function refreshAll() {
+      sensors.forEach(sensor => {
+        updateSensor(sensor);
+        fetch(`${base}/sensor/${sensor.id}-log`)
+          .then(res => res.text())
+          .then(csv => {
+            const rows = csv.trim().split("\n").slice(-20);
+            const labels = [], temp = [], hum = [];
 
-          rows.forEach(r => {
-            const [time, , t, h] = r.split(",");
-            const ts = new Date(time).getTime();
-
-            if (ts - lastTime >= 30 * 60 * 1000) {
-              const tObj = new Date(ts);
-              const label = tObj.toLocaleTimeString("en-US", {
-                hour: 'numeric',
-                minute: 'numeric',
-                hour12: true
-              });
-              labels.push(label);
+            rows.forEach(r => {
+              const [time, , t, h] = r.split(",");
+              labels.push(new Date(time).toLocaleTimeString("en-US", {
+                hour: 'numeric', minute: 'numeric', hour12: true
+              }));
               temp.push(parseFloat(t));
               hum.push(parseFloat(h));
-              lastTime = ts;
-            }
-          });
+            });
 
-          const ctx = document.getElementById(`chart-${sensor.id}`);
-          if (!charts[sensor.id]) {
-            charts[sensor.id] = new Chart(ctx, {
+            const ctx = document.getElementById(`chart-${sensor.id}`).getContext('2d');
+            if (miniCharts[sensor.id]) miniCharts[sensor.id].destroy();
+
+            miniCharts[sensor.id] = new Chart(ctx, {
               type: "line",
               data: {
                 labels: labels,
                 datasets: [
-                  {
-                    label: "Temp (°F)",
-                    data: temp,
-                    borderColor: "orange",
-                    yAxisID: "tempAxis",
-                    fill: false,
-                    tension: 0.2
-                  },
-                  {
-                    label: "Humidity (%)",
-                    data: hum,
-                    borderColor: "lightblue",
-                    yAxisID: "humAxis",
-                    fill: false,
-                    tension: 0.2
-                  }
+                  { label: "Temp (°F)", data: temp, borderColor: "orange", fill: false },
+                  { label: "Humidity (%)", data: hum, borderColor: "lightblue", fill: false }
                 ]
               },
               options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: {
-                  legend: {
-                    labels: { color: "#eee" }
-                  }
-                },
-                scales: {
-                  x: { ticks: { color: "#aaa" } },
-                  tempAxis: {
-                    type: 'linear',
-                    position: 'left',
-                    min: 0,
-                    max: 100,
-                    title: {
-                      display: true,
-                      text: 'Temp (°F)',
-                      color: 'orange'
-                    },
-                    ticks: { color: 'orange' }
-                  },
-                  humAxis: {
-                    type: 'linear',
-                    position: 'right',
-                    min: 0,
-                    max: 100,
-                    title: {
-                      display: true,
-                      text: 'Humidity (%)',
-                      color: 'lightblue'
-                    },
-                    ticks: { color: 'lightblue' },
-                    grid: { drawOnChartArea: false }
-                  }
-                }
+                plugins: { legend: { display: false } },
+                scales: { x: { ticks: { color: "#aaa" } }, y: { ticks: { color: "#eee" } } }
               }
             });
-          } else {
-            charts[sensor.id].data.labels = labels;
-            charts[sensor.id].data.datasets[0].data = temp;
-            charts[sensor.id].data.datasets[1].data = hum;
-            charts[sensor.id].update();
-          }
-        });
-    }
+          });
+      });
 
-    function createComingSoonChart(id) {
-      const ctx = document.getElementById(`chart-${id}`);
-      new Chart(ctx, {
-        type: "line",
-        data: {
-          labels: Array.from({ length: 10 }, (_, i) => `T${i}`),
-          datasets: [
-            {
-              label: "Temp (°F)",
-              data: Array(10).fill(null),
-              borderColor: "#444",
-              borderDash: [5, 5],
-              fill: false
-            },
-            {
-              label: "Humidity (%)",
-              data: Array(10).fill(null),
-              borderColor: "#555",
-              borderDash: [5, 5],
-              fill: false
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: {
-            legend: { labels: { color: "#777" } }
-          },
-          scales: {
-            x: { ticks: { color: "#666" } },
-            y: {
-              min: 0,
-              max: 100,
-              ticks: { color: "#666" },
-              title: {
-                display: true,
-                text: "Coming Soon",
-                color: "#777"
-              }
-            }
-          }
-        }
+      comingSoon.forEach(sensor => {
+        const ctx = document.getElementById(`chart-${sensor.id}`).getContext('2d');
+        new Chart(ctx, {
+          type: "line",
+          data: { labels: Array(10).fill('T'), datasets: [
+            { data: Array(10).fill(null), borderColor: "#444", borderDash: [5, 5], fill: false },
+            { data: Array(10).fill(null), borderColor: "#555", borderDash: [5, 5], fill: false }
+          ]},
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+        });
       });
     }
 
-    function refreshAll() {
-      sensors.forEach(updateSensor);
-      comingSoon.forEach(sensor => createComingSoonChart(sensor.id));
+    setInterval(refreshAll, 15000);
+    refreshAll();
+    // Popup Functions
+    document.querySelectorAll(".tile").forEach(tile => {
+      tile.addEventListener("click", () => {
+        popupSensorId = tile.getAttribute("data-sensor-id");
+        openPopup(popupSensorId);
+      });
+    });
+
+    function openPopup(sensorId) {
+      document.getElementById("popup").style.display = "flex";
+      document.getElementById("popup-title").innerText = sensors.find(s => s.id === sensorId)?.label || "Sensor Graph";
+      currentScale = "hour"; // reset
+      currentFilter = "all"; // reset
+      document.getElementById("filter-select").value = "all"; // reset filter dropdown
+      loadPopupGraph(sensorId);
     }
 
-    refreshAll();
-    setInterval(refreshAll, 15000);
+    function closePopup() {
+      document.getElementById("popup").style.display = "none";
+      if (popupChart) popupChart.destroy();
+    }
+
+    function setTimescale(scale) {
+      currentScale = scale;
+      loadPopupGraph(popupSensorId);
+    }
+
+    function setFilter() {
+      currentFilter = document.getElementById("filter-select").value;
+      loadPopupGraph(popupSensorId);
+    }
+
+    function loadPopupGraph(sensorId) {
+      fetch(`${base}/sensor/${sensorId}-log`)
+        .then(res => res.text())
+        .then(csv => {
+          const rows = csv.trim().split("\n");
+          const labels = [], temp = [], hum = [], lux = [];
+
+          const now = Date.now();
+          let cutoff = now;
+          if (currentScale === "hour") cutoff -= 1 * 60 * 60 * 1000;
+          else if (currentScale === "day") cutoff -= 24 * 60 * 60 * 1000;
+          else if (currentScale === "week") cutoff -= 7 * 24 * 60 * 60 * 1000;
+          else if (currentScale === "month") cutoff -= 30 * 24 * 60 * 60 * 1000;
+
+          let lastIncludedTime = 0;
+          const spacing = currentScale === "hour" ? 2 * 60 * 1000 :  // 2 min for hour
+                          currentScale === "day" ? 15 * 60 * 1000 :   // 15 min for day
+                          currentScale === "week" ? 2 * 60 * 60 * 1000 : // 2 hr for week
+                          24 * 60 * 60 * 1000; // 1 day for month
+
+          rows.forEach(r => {
+            const parts = r.split(",");
+            const time = parts[0];
+            const ts = new Date(time).getTime();
+            const hours = new Date(ts).getHours();
+
+            if (ts >= cutoff) {
+              let passFilter = true;
+              if (currentFilter === "day" && (hours < 7 || hours >= 19)) {
+                passFilter = false;
+              }
+              if (currentFilter === "night" && (hours >= 7 && hours < 19)) {
+                passFilter = false;
+              }
+              if (passFilter && (ts - lastIncludedTime >= spacing)) {
+                labels.push(new Date(time).toLocaleString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "numeric",
+                  hour12: true
+                }));
+                temp.push(parseFloat(parts[2]));
+                hum.push(parseFloat(parts[3]));
+                if (parts.length > 4) lux.push(parseFloat(parts[4]));
+                lastIncludedTime = ts;
+              }
+            }
+          });
+
+          const ctx = document.getElementById("popup-chart").getContext('2d');
+          if (popupChart) popupChart.destroy();
+
+          popupChart = new Chart(ctx, {
+            type: "line",
+            data: {
+              labels: labels,
+              datasets: [
+                { label: "Temp (°F)", data: temp, borderColor: "orange", fill: false },
+                { label: "Humidity (%)", data: hum, borderColor: "lightblue", fill: false },
+                ...(lux.length ? [{ label: "Lux (lx)", data: lux, borderColor: "yellow", fill: false }] : [])
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { labels: { color: "#eee" } }
+              },
+              scales: {
+                x: { ticks: { color: "#aaa" } },
+                y: { ticks: { color: "#eee" } }
+              }
+            }
+          });
+        });
+    }
   </script>
 </body>
 </html>
