@@ -124,23 +124,109 @@ void loop() {
   postData("Living Room", lr_temp, lr_hum, -1, tds, water_level);
   delay(250);
 
-  // Display TDS + water level on OLED
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.setTextSize(1);
-  display.println("TDS Monitor");
 
-  display.setTextSize(2);
-  display.setCursor(0, 16);
-  display.print(tds, 1);
-  display.println(" ppm");
 
-  display.setTextSize(1);
-  display.setCursor(0, 40);
-  display.print("Water Level: ");
-  display.print(water_level, 0);
-  display.println("%");
 
-  display.display();
+
+ // --- Update Display ---
+ tft.fillScreen(ST77XX_BLACK);  // Full black background
+  
+  
+ uint16_t titleColor, tempColor, humColor, luxColor, green;
+ 
+ if (lux > 10) {
+   titleColor = ST77XX_WHITE;
+   tempColor = ST77XX_BLUE;
+   humColor = ST77XX_YELLOW;
+   luxColor = 0x7D7C;
+   green = ST77XX_GREEN;
+ ;
+ } else {
+   green = 
+   titleColor = 0x4208;  
+   tempColor = 0x4208;
+   humColor = 0x4208;
+   luxColor = 0x4208;
+ 
+   }
+   
+   tft.setTextSize(1);             // SMALL clean text
+
+   
+// Title
+tft.setCursor(30, 5);
+tft.setTextColor(titleColor);
+tft.println("Green Frog Tank");
+
+// Frog Tank Data
+tft.setCursor(20, 15);
+tft.setTextColor(tempColor);
+tft.printf("Temp: %.1fF", gt_temp[0]);
+
+tft.setCursor(20, 25);
+tft.setTextColor(humColor);
+tft.printf("Hum : %.1f%%", gt_hum[0]);
+
+tft.setCursor(20, 35);
+tft.setTextColor(luxColor);
+tft.printf("Lux  : %.1f lx", gt_lux[0]);
+
+tft.setCursor(30, 45);
+tft.setTextColor(titleColor);
+tft.println("Aquarium");
+
+tft.setCursor(20, 55);
+tft.setTextColor(tempColor);
+tft.printf("TDS: %.1fF", tds[1]);
+
+tft.setCursor(30, 45);
+tft.setTextColor(titleColor);
+tft.println("Living Room");
+
+tft.setCursor(20, 15);
+tft.setTextColor(tempColor);
+tft.printf("Temp: %.1fF", lr_temp[0]);
+
+tft.setCursor(20, 15);
+tft.setTextColor(tempColor);
+tft.printf("Hum: %.1fF", lr_hum[0]);
+
+// HTTP POST Confirmation
+if (postSuccess) {
+  tft.setCursor(90, 60);
+  tft.setTextColor(green);
+  tft.println("POSTED!");
+} else {
+      tft.setCursor(90, 65);
+  tft.setTextColor(tempColor);
+  tft.println("FAILED!");
+}
+
+
+
+
+
+
+  // // Display TDS + water level on OLED
+  // display.clearDisplay();
+  // display.setCursor(20, 5);
+  // display.setTextSize(1);
+  // display.println("TDS Monitor");
+
+  // display.setTextSize(2);
+  // display.setCursor(0, 16);
+  // display.print(tds, 1);
+  // display.println(" ppm");
+
+
+
+  // display.setTextSize(2);
+  // display.setCursor(0, 16);
+  // display.print(gt_hum, 1);
+  // display.print(gt_temp, 1);
+
+  // display.display();
+
+
   delay(10000);
 }
