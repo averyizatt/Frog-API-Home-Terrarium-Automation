@@ -145,16 +145,16 @@
       <span class="close-btn" onclick="closePopup()">×</span>
       <h2 id="popup-title">Sensor Graph</h2>
       <div class="scale-buttons">
-        <button onclick="setTimescale('hour')">Hour</button>
-        <button onclick="setTimescale('day')">Day</button>
-        <button onclick="setTimescale('week')">Week</button>
-        <button onclick="setTimescale('month')">Month</button>
+        <button onclick="setTimescale('Hour')">Hour</button>
+        <button onclick="setTimescale('Day')">Day</button>
+        <button onclick="setTimescale('Week')">Week</button>
+        <button onclick="setTimescale('Month')">Month</button>
       </div>
       <div class="filter-dropdown">
         <select id="filter-select" onchange="setFilter()">
-          <option value="all">All Data</option>
-          <option value="day">Daytime (7AM–7PM)</option>
-          <option value="night">Nighttime (7PM–7AM)</option>
+          <option value="All">All Data</option>
+          <option value="Day">Daytime (7AM–7PM)</option>
+          <option value="Night">Nighttime (7PM–7AM)</option>
         </select>
       </div>
       <canvas id="popup-chart" style="height:400px;"></canvas>
@@ -316,9 +316,9 @@
     function openPopup(sensorId) {
       document.getElementById("popup").style.display = "flex";
       document.getElementById("popup-title").innerText = sensors.find(s => s.id === sensorId)?.label || "Sensor Graph";
-      currentScale = "hour"; // reset
-      currentFilter = "all"; // reset
-      document.getElementById("filter-select").value = "all"; // reset filter dropdown
+      currentScale = "Hour"; // reset
+      currentFilter = "All"; // reset
+      document.getElementById("filter-select").value = "All"; // reset filter dropdown
       loadPopupGraph(sensorId);
     }
 
@@ -346,15 +346,15 @@
 
           const now = Date.now();
           let cutoff = now;
-          if (currentScale === "hour") cutoff -= 1 * 60 * 60 * 1000;
-          else if (currentScale === "day") cutoff -= 24 * 60 * 60 * 1000;
-          else if (currentScale === "week") cutoff -= 7 * 24 * 60 * 60 * 1000;
-          else if (currentScale === "month") cutoff -= 30 * 24 * 60 * 60 * 1000;
+          if (currentScale === "Hour") cutoff -= 1 * 60 * 60 * 1000;
+          else if (currentScale === "Day") cutoff -= 24 * 60 * 60 * 1000;
+          else if (currentScale === "Week") cutoff -= 7 * 24 * 60 * 60 * 1000;
+          else if (currentScale === "Month") cutoff -= 30 * 24 * 60 * 60 * 1000;
 
           let lastIncludedTime = 0;
-          const spacing = currentScale === "hour" ? 2 * 60 * 1000 :  // 2 min for hour
-                          currentScale === "day" ? 15 * 60 * 1000 :   // 15 min for day
-                          currentScale === "week" ? 2 * 60 * 60 * 1000 : // 2 hr for week
+          const spacing = currentScale === "Hour" ? 2 * 60 * 1000 :  // 2 min for hour
+                          currentScale === "Day" ? 15 * 60 * 1000 :   // 15 min for day
+                          currentScale === "Week" ? 2 * 60 * 60 * 1000 : // 2 hr for week
                           24 * 60 * 60 * 1000; // 1 day for month
 
           rows.forEach(r => {
