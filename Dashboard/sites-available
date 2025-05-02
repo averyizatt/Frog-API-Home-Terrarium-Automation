@@ -1,0 +1,116 @@
+# HTTP to HTTPS Redirect
+server {
+    listen 80;
+    server_name averyizatt.com www.averyizatt.com;
+    return 301 https://$host$request_uri;
+}
+
+# Main HTTPS Site
+server {
+    listen 443 ssl http2;
+    server_name averyizatt.com www.averyizatt.com;
+
+    root /var/www/averyizatt.com;
+    index index.php index.html;
+    client_max_body_size 64M;
+
+    # Let’s Encrypt SSL
+    ssl_certificate /etc/letsencrypt/live/averyizatt.com-0001/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/averyizatt.com-0001/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+    # Main WordPress Site
+    location / {
+        try_files $uri $uri/ /index.php?$args;
+    }
+
+    location = /index.php {
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        include fastcgi_params;
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $request_filename;
+    }
+
+    location ~ /\.ht {
+        deny all;
+    }
+
+    # === Reverse Proxy: Frog Tank API
+    location /frogtank/ {
+        proxy_pass http://127.0.0.1:5020/frogtank/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # === Serve Frog Tank Static Assets
+    location /frogtank/css/ {
+        alias /var/www/dashboard/css/;
+    }
+
+    location /frogtank/js/ {
+        alias /var/www/dashboard/js/;
+    }
+
+    location = /frogtank/frog-bg.jpg {
+        alias /var/www/dashboard/frog-bg.jpg;
+    }
+
+    # === Optional: Redirect /terrariums to /frogtank/
+    location = /terrariums {
+        return 302 /frogtank/;
+    }
+
+    # === Existing Reverse Proxies
+    location /guac/ {
+        proxy_pass http://localhost:8080/;
+        proxy_buffering off;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $http_connection;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        rewrite ^/guac(/.*)$ $1 break;
+    }
+
+    location = /kasm {
+        return 301 /kasm/;
+    }
+
+    location /kasm/ {
+        proxy_pass https://localhost:8443/;
+        proxy_http_version 1.1;
+        proxy_ssl_verify off;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        rewrite ^/kasm(/.*)$ $1 break;
+    }
+
+    location /cockpit/ {
+        proxy_pass http://localhost:9090/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
