@@ -12,11 +12,16 @@ const char* server = "https://averyizatt.com/frogtank/api/sensor";
 
 // --- Sensor Setup ---
 #define SENSOR_COUNT 3
-const uint8_t dhtPins[SENSOR_COUNT] = {12, 4, 14};  // Pinktoe, Red Knee, Office
+const uint8_t dhtPins[SENSOR_COUNT] = {
+  4,   // Office Temp → D2
+  2,   // Pinktoe     → D4
+  13   // Red Knee     → D13
+};
+
 const char* sensorNames[SENSOR_COUNT] = {
-  "Avicularia Avicularia",  // Pinktoe
-  "Red Knee",               // Red Knee
-  "Office Sensor"           // Office Temp
+  "Office Sensor",
+  "Avicularia Avicularia",
+  "Red Knee"
 };
 
 DHT dhts[SENSOR_COUNT] = {
