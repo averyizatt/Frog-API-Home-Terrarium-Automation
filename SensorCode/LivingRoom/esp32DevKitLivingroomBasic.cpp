@@ -5,6 +5,7 @@
 #include <DHT.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <CQRobotTDS.h>
 
 // --- Wi-Fi Credentials ---
 const char* ssid = "thefrogpit";
@@ -12,11 +13,11 @@ const char* password = "";
 const char* server = "https://averyizatt.com/frogtank/api/sensor";
 
 // --- Sensor Pins ---
-#define DHT_PIN_PLANT 4      // DHT11 - Plant Tank
-#define DHT_PIN_FROG 19      // DHT11 - Green Tree Frog
-#define TDS_PIN 34           // Analog - TDS Sensor
-#define SDA_PIN 21           // OLED I2C SDA
-#define SCL_PIN 22           // OLED I2C SCL
+#define DHT_PIN_LIVING_ROOM 4
+#define DHT_PIN_GREEN_FROG 19
+#define TDS_PIN 35
+#define SDA_PIN 21
+#define SCL_PIN 22
 
 // --- Display ---
 #define SCREEN_WIDTH 128
@@ -26,8 +27,11 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // --- DHT Setup ---
 #define DHTTYPE DHT11
-DHT dhtPlant(DHT_PIN_PLANT, DHTTYPE);
-DHT dhtFrog(DHT_PIN_FROG, DHTTYPE);
+DHT dhtLivingRoom(DHT_PIN_LIVING_ROOM, DHTTYPE);
+DHT dhtGreenFrog(DHT_PIN_GREEN_FROG, DHTTYPE);
+
+// --- TDS Sensor Setup ---
+CQRobotTDS tdsSensor(TDS_PIN, 3.3);  // initialized here
 
 // --- Wi-Fi Recovery Timers ---
 const unsigned long WIFI_TIMEOUT_MS = 10000;
@@ -36,9 +40,8 @@ unsigned long wifiDisconnectedSince = 0;
 
 bool postSuccess = false;
 
+// Forward declare postSensor before loop()
 void postSensor(String name, float temp, float hum, float tds = -1);
-
-
 
 void setup() {
   Serial.begin(115200);
@@ -46,8 +49,8 @@ void setup() {
   Serial.println("[BOOT] ESP32 Terrarium Monitor");
 
   Wire.begin(SDA_PIN, SCL_PIN);
-  dhtPlant.begin();
-  dhtFrog.begin();
+  dhtLivingRoom.begin();
+  dhtGreenFrog.begin();
 
   if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
     Serial.println("[ERROR] OLED not found!");
@@ -58,38 +61,45 @@ void setup() {
   display.setTextColor(SSD1306_WHITE);
   display.setTextSize(1);
 
+  // TDS config (no .begin())
+  tdsSensor.setAdcRange(4096);
+  tdsSensor.setTemperature(26.7); // 80°F in Celsius
+
   connectWiFi();
 }
 
 void loop() {
   autoReconnectWiFi();
 
-  float tempPlant = dhtPlant.readTemperature(true);
-  float humPlant = dhtPlant.readHumidity();
-  float tempFrog = dhtFrog.readTemperature(true);
-  float humFrog = dhtFrog.readHumidity();
-  float tds = readTDS();
+  float tempLivingRoom = dhtLivingRoom.readTemperature(true);
+  float humLivingRoom = dhtLivingRoom.readHumidity();
+  float tempGreenFrog = dhtGreenFrog.readTemperature(true);
+  float humGreenFrog = dhtGreenFrog.readHumidity();
 
-  Serial.printf("[READ] Plant Tank: %.1fF %.1f%%\n", tempPlant, humPlant);
-  Serial.printf("[READ] Green Frog: %.1fF %.1f%%\n", tempFrog, humFrog);
-  Serial.printf("[READ] TDS: %.1f ppm\n", tds);
+  tdsSensor.update();
+  float tdsValue = tdsSensor.getTdsValue();
 
-  postSensor("Plant Tank", tempPlant, humPlant);
+  Serial.printf("[READ] Living Room: %.1f°F %.1f%%\n", tempLivingRoom, humLivingRoom);
+  Serial.printf("[READ] Green Tree Frog Terrarium: %.1f°F %.1f%%\n", tempGreenFrog, humGreenFrog);
+  Serial.printf("[READ] TDS: %.1f ppm\n", tdsValue);
+
+  postSensor("Living Room", tempLivingRoom, humLivingRoom);
   delay(250);
-  postSensor("Green Tree Frog", tempFrog, humFrog);
+  postSensor("Green Tree Frog Terrarium", tempGreenFrog, humGreenFrog);
   delay(250);
-  postSensor("Aquarium", -1, -1, tds);
+  postSensor("Aquarium", -1, -1, tdsValue);
   delay(250);
 
-  updateDisplay(tempPlant, humPlant, tempFrog, humFrog, tds);
+  updateDisplay(tempLivingRoom, humLivingRoom, tempGreenFrog, humGreenFrog, tdsValue);
   delay(10000);
 }
 
+// --- Sensor Post ---
 void postSensor(String name, float temp, float hum, float tds) {
   String payload = "{\"sensor\":\"" + name + "\"";
   if (temp >= 0) payload += ",\"temp\":" + String(temp, 1);
-  if (hum >= 0) payload += ",\"humidity\":" + String(hum, 1);
-  if (tds >= 0) payload += ",\"tds\":" + String(tds, 1);
+  if (hum >= 0)  payload += ",\"humidity\":" + String(hum, 1);
+  if (tds >= 0)  payload += ",\"tds\":" + String(tds, 1);
   payload += "}";
 
   Serial.printf("[POST] %s\n", payload.c_str());
@@ -109,27 +119,20 @@ void postSensor(String name, float temp, float hum, float tds) {
   }
 }
 
-float readTDS() {
-  int raw = analogRead(TDS_PIN);
-  float voltage = raw * 3.3 / 4095.0;
-  float tds = (133.42 * voltage * voltage * voltage
-              - 255.86 * voltage * voltage
-              + 857.39 * voltage) * 0.5;
-  return tds;
-}
-
+// --- Display ---
 void updateDisplay(float tp, float hp, float tf, float hf, float tds) {
   display.clearDisplay();
   display.setCursor(0, 0);
-  display.println("Plant Tank:");
-  display.printf("T: %.1fF H: %.1f%%\n", tp, hp);
+  display.println("Living Room:");
+  display.printf("T: %.1f°F H: %.1f%%\n", tp, hp);
   display.println("Green Frog:");
-  display.printf("T: %.1fF H: %.1f%%\n", tf, hf);
+  display.printf("T: %.1f°F H: %.1f%%\n", tf, hf);
   display.printf("TDS: %.1f ppm\n", tds);
   display.println(postSuccess ? "POSTED" : "FAILED");
   display.display();
 }
 
+// --- Wi-Fi ---
 void connectWiFi() {
   WiFi.begin(ssid, password);
   Serial.print("[WIFI] Connecting");
