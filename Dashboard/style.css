@@ -46,8 +46,12 @@ body {
 /* Mini graphs on tiles */
 canvas {
   width: 100% !important;
+  height: 150px;
   max-height: 180px;
   aspect-ratio: 2 / 1;
+  display: block;
+  background: #222;
+  border-radius: 5px;
 }
 
 /* Alert icons (dots) */
@@ -137,4 +141,3 @@ canvas {
   border-radius: 5px;
   cursor: pointer;
 }
-
